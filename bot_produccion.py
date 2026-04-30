@@ -5,6 +5,7 @@ from statsmodels.tsa.stattools import adfuller
 from datetime import datetime
 import requests
 import os
+import json
 from tvDatafeed import TvDatafeed, Interval
 
 # --- 1. CREDENCIALES Y PARÁMETROS ---
@@ -83,30 +84,87 @@ def ejecutar_bot_diario():
     spread_hoy = df['spread'].iloc[-1]
     z_score_hoy = (spread_hoy - media_z) / std_z
 
+    precio_al_hoy = df['al30d'].iloc[-1]
+    precio_gd_hoy = df['gd30d'].iloc[-1]
+
     # --- 4. LÓGICA DE DECISIÓN Y ALERTAS ---
     # Asumimos estado flat (0) para la demostración. 
-    estado_actual = 0 
-    accion = "ESPERAR"
+    COSTO_TRANSACCION = 0.002 # 0.2%
+    
+    # 4.1. Abrir la memoria
+    try:
+        with open('cartera.json', 'r') as f:
+            cartera = json.load(f)
+    except Exception:
+        enviar_telegram("🚨 Error: No se pudo leer cartera.json")
+        return
 
+    estado_actual = cartera['estado_actual']
+    capital = cartera['capital_cash']
+    accion = "ESPERAR (Mantener posición actual)"
+    rendimiento_trade = 0.0
+
+    # 4.2. Toma de Decisiones y Contabilidad
     if estado_actual == 0:
         if z_score_hoy > UMBRAL_ENTRADA and pval < UMBRAL_PVAL_ADF:
             accion = "🔴 ABRIR SHORT (Vender AL30, Comprar GD30)"
+            cartera['estado_actual'] = -1
+            cartera['precio_al30_entrada'] = precio_al_hoy
+            cartera['precio_gd30_entrada'] = precio_gd_hoy
+            cartera['beta_entrada'] = beta_hoy
+            cartera['capital_cash'] = capital * (1 - COSTO_TRANSACCION) # Pago comisión entrada
+            
         elif z_score_hoy < -UMBRAL_ENTRADA and pval < UMBRAL_PVAL_ADF:
             accion = "🟢 ABRIR LONG (Comprar AL30, Vender GD30)"
+            cartera['estado_actual'] = 1
+            cartera['precio_al30_entrada'] = precio_al_hoy
+            cartera['precio_gd30_entrada'] = precio_gd_hoy
+            cartera['beta_entrada'] = beta_hoy
+            cartera['capital_cash'] = capital * (1 - COSTO_TRANSACCION)
+
+    elif estado_actual == 1: # Estábamos comprados
+        if z_score_hoy > -TAKE_PROFIT:
+            accion = "✅ CERRAR LONG (Take Profit)"
+            retorno = (precio_al_hoy / cartera['precio_al30_entrada'] - 1) - cartera['beta_entrada'] * (precio_gd_hoy / cartera['precio_gd30_entrada'] - 1)
+            capital_bruto = capital * (1 + retorno)
+            cartera['capital_cash'] = capital_bruto * (1 - COSTO_TRANSACCION) # Comisión salida
+            rendimiento_trade = retorno * 100
+            cartera['estado_actual'] = 0
+
+    elif estado_actual == -1: # Estábamos vendidos
+        if z_score_hoy < TAKE_PROFIT:
+            accion = "✅ CERRAR SHORT (Take Profit)"
+            # El retorno se invierte porque estamos shorteados en el spread
+            retorno = -1 * ((precio_al_hoy / cartera['precio_al30_entrada'] - 1) - cartera['beta_entrada'] * (precio_gd_hoy / cartera['precio_gd30_entrada'] - 1))
+            capital_bruto = capital * (1 + retorno)
+            cartera['capital_cash'] = capital_bruto * (1 - COSTO_TRANSACCION)
+            rendimiento_trade = retorno * 100
+            cartera['estado_actual'] = 0
+
+    # 4.3. Guardar la memoria para mañana
+    with open('cartera.json', 'w') as f:
+        json.dump(cartera, f, indent=4)
+
+    # --- 5. REPORTE TELEGRAM ---
+    # Traducimos el estado para el reporte
+    txt_estado = "FLAT (Fuera del mercado)" if cartera['estado_actual'] == 0 else ("LONG" if cartera['estado_actual'] == 1 else "SHORT")
     
-    # Armamos el reporte visual para Telegram
     reporte = (
         f"🤖 *Reporte Quant Diario* ({fecha_hoy})\n\n"
-        f"📊 *Métricas:*\n"
+        f"📊 *Métricas del Mercado:*\n"
         f"• Z-Score: `{z_score_hoy:.2f}`\n"
         f"• ADF P-Valor: `{pval:.4f}`\n"
-        f"• Beta Actual: `{beta_hoy:.4f}`\n\n"
-        f"🎯 *Decisión:* \n*{accion}*"
+        f"• AL30D: `${precio_al_hoy:.2f}` | GD30D: `${precio_gd_hoy:.2f}`\n\n"
+        f"💼 *Tu Billetera Virtual:*\n"
+        f"• Capital Total: `USD ${cartera['capital_cash']:.2f}`\n"
+        f"• Posición Actual: `{txt_estado}`\n\n"
+        f"🎯 *Decisión de Hoy:* \n*{accion}*"
     )
     
-    print(reporte)
-    # Disparamos el mensaje a tu celular
-    enviar_telegram(reporte)
+    if rendimiento_trade != 0.0:
+        reporte += f"\n\n📈 Rendimiento de este trade: `{rendimiento_trade:.2f}%`"
 
+    print(reporte)
+    enviar_telegram(reporte)
 if __name__ == "__main__":
     ejecutar_bot_diario()
