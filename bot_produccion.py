@@ -5,6 +5,7 @@ from statsmodels.tsa.stattools import adfuller
 from datetime import datetime
 import requests
 import os
+from tvDatafeed import TvDatafeed, Interval
 
 # --- 1. CREDENCIALES Y PARÁMETROS ---
 # GitHub Actions le va a inyectar estos valores de forma segura
@@ -36,13 +37,27 @@ def ejecutar_bot_diario():
     print(f"[{fecha_hoy}] Despertando bot de Pairs Trading...")
 
     # --- 2. OBTENER DATOS FRESCOS ---
-    # ATENCIÓN: Para que el bot sea 100% autónomo en el servidor, 
-    # acá deberías usar una API (ej: yfinance o la de tu broker) para bajar el precio de cierre de hoy.
-    # Por ahora, usamos el CSV asumiendo que está actualizado.
     try:
-        df = pd.read_csv("pares_bonos_usd.csv").tail(VENTANA_BETA).copy()
-    except FileNotFoundError:
-        enviar_telegram("🚨 ERROR CRÍTICO: No se encontró la base de datos de bonos.")
+        print("Conectando a TradingView...")
+        tv = TvDatafeed() # Inicialización anónima gratuita
+        
+        # Bajamos un poco más de los 120 días que necesitamos por las dudas
+        al30d_raw = tv.get_hist(symbol='AL30D', exchange='BCBA', interval=Interval.in_daily, n_bars=VENTANA_BETA + 10)
+        gd30d_raw = tv.get_hist(symbol='GD30D', exchange='BCBA', interval=Interval.in_daily, n_bars=VENTANA_BETA + 10)
+
+        # Filtramos solo la columna de cierre y emulamos tu viejo CSV
+        al30d = al30d_raw[['close']].rename(columns={'close': 'al30d'})
+        gd30d = gd30d_raw[['close']].rename(columns={'close': 'gd30d'})
+        
+        # Unimos ambas series por fecha para asegurar que estén alineadas
+        df = pd.merge(al30d, gd30d, left_index=True, right_index=True, how='inner').reset_index()
+        df.rename(columns={'datetime': 'fecha'}, inplace=True)
+        
+        # Recortamos exactamente a los últimos 120 días para el modelo
+        df = df.tail(VENTANA_BETA).copy()
+        
+    except Exception as e:
+        enviar_telegram(f"🚨 ERROR CRÍTICO: Falló la conexión a TradingView.\nDetalles: `{e}`")
         return
 
     df['lnal'] = np.log(df['al30d'])
