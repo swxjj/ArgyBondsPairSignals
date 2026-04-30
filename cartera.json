@@ -1,7 +1,7 @@
 {
-  "capital_cash": 10000.0,
-  "estado_actual": 0,
-  "precio_al30_entrada": 0.0,
-  "precio_gd30_entrada": 0.0,
-  "beta_entrada": 0.0
+    "capital_cash": 10000.0,
+    "estado_actual": 0,
+    "precio_al30_entrada": 0.0,
+    "precio_gd30_entrada": 0.0,
+    "beta_entrada": 0.0
 }
