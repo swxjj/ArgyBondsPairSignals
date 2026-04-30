@@ -1,0 +1,36 @@
+name: Bot Pairs Trading Diario
+
+# Cuándo debe ejecutarse este bot
+on:
+  schedule:
+    # Corre de Lunes (1) a Viernes (5) a las 20:15 UTC (17:15 Hora Argentina)
+    - cron: '15 20 * * 1-5'
+  
+  # Permite ejecutarlo a mano desde la página de GitHub con un botón
+  workflow_dispatch:
+
+jobs:
+  analisis_cuantitativo:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Descargar el repositorio
+      uses: actions/checkout@v3
+
+    - name: Instalar Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Instalar librerías financieras
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Ejecutar el Algoritmo y Enviar Alerta
+      # Acá pasamos los secretos de GitHub a tu código de Python
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: |
+        python bot_produccion.py
