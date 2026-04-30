@@ -6,16 +6,10 @@ on:
     # Corre de Lunes (1) a Viernes (5) a las 20:15 UTC (17:15 Hora Argentina)
     - cron: '15 20 * * 1-5'
   
-  # Permite ejecutarlo a mano desde la página de GitHub con un botón
-  workflow_dispatch:
-name: Bot Pairs Trading Diario
-
-on:
-  schedule:
-    - cron: '15 20 * * 1-5'
+  # Permite ejecutarlo a mano desde la pestaña Actions con el botón "Run workflow"
   workflow_dispatch:
 
-# ESTO ES NUEVO: Le da permisos al bot para guardar archivos
+# ESTO ES CLAVE: Le da permisos al servidor virtual para sobreescribir archivos en tu repositorio
 permissions:
   contents: write
 
@@ -38,17 +32,18 @@ jobs:
         pip install -r requirements.txt
 
     - name: Ejecutar el Algoritmo y Enviar Alerta
+      # Inyectamos tus secretos de manera segura
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: |
         python bot_produccion.py
 
-    # ESTO ES NUEVO: Guarda el JSON si hubo cambios
-    - name: Guardar la cartera en GitHub
+    - name: Guardar la memoria contable (JSON) en GitHub
       run: |
         git config --global user.name "Bot Cuantitativo"
         git config --global user.email "bot@quant.com"
         git add cartera.json
-        # Solo hace commit si el archivo realmente se modificó
+        # La siguiente línea verifica si el archivo JSON realmente se modificó hoy. 
+        # Si el bot no operó, no hace nada. Si operó o pagó comisión, lo guarda y lo sube.
         git diff --quiet && git diff --staged --quiet || (git commit -m "Actualiza saldo de cartera" && git push)
