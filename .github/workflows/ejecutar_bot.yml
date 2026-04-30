@@ -8,6 +8,16 @@ on:
   
   # Permite ejecutarlo a mano desde la página de GitHub con un botón
   workflow_dispatch:
+name: Bot Pairs Trading Diario
+
+on:
+  schedule:
+    - cron: '15 20 * * 1-5'
+  workflow_dispatch:
+
+# ESTO ES NUEVO: Le da permisos al bot para guardar archivos
+permissions:
+  contents: write
 
 jobs:
   analisis_cuantitativo:
@@ -28,9 +38,17 @@ jobs:
         pip install -r requirements.txt
 
     - name: Ejecutar el Algoritmo y Enviar Alerta
-      # Acá pasamos los secretos de GitHub a tu código de Python
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: |
         python bot_produccion.py
+
+    # ESTO ES NUEVO: Guarda el JSON si hubo cambios
+    - name: Guardar la cartera en GitHub
+      run: |
+        git config --global user.name "Bot Cuantitativo"
+        git config --global user.email "bot@quant.com"
+        git add cartera.json
+        # Solo hace commit si el archivo realmente se modificó
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Actualiza saldo de cartera" && git push)
